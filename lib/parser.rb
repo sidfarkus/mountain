@@ -6,55 +6,52 @@ class Parser < Parslet::Parser
   rule(:spaces?) { spaces.maybe }
   rule(:newline) { match('\n') }
 
-  # Define matchers for the base literals
+  # Define matchers for the base literals - FixNum, Float, String, Bool
   rule(:fixnum) { match['-'].maybe >> match['1-9'] >> match['0-9'].repeat }
   rule(:float) { match['-'].maybe >> ((match['1-9'].maybe >> match['\.'] >> match['0-9'].repeat) | (match['1-9'].repeat(1) >> match['e'] >> match['0-9'].repeat)) }
+  rule(:bool) { str('true') | str('false') }  
   rule(:string) do
-    (match['"'] >> match['^"'].repeat >> match['"']) |
-    (match["'"] >> match["^'"].repeat >> match["'"])
+    interpolation = str('#{') >> expression >> match['}']
+    escape = (match['\\\\'] >> match['nrt\\\\\'"']).as(:escaped)
+    (match['"'] >> (interpolation.as(:interpolation) | escape | match['^"'].as(:content)).repeat >> match['"']) |
+    (match["'"] >> (escape | match["^'"].as(:content)).repeat >> match["'"])
   end
 
   rule(:numeric) { fixnum.as(:fixnum) | float.as(:float) }
-  rule(:literal) { numeric | string.as(:string) }
+  rule(:literal) { numeric | string.as(:string) | bool.as(:bool) }
 
   # Identifiers are named references to things -- classes, functions, modules etc
   rule(:identifier) do
-    match['a-zA-Z0-9_'].repeat(1)
+    match['a-zA-Z0-9_'].repeat(1).as(:identifier)
   end
 
   rule(:bit) do
-    literal | identifier.as(:identifier)
+    literal | identifier
   end
 
-  def operator(symbol)
-    bit.as(:lhs) >> spaces? >> match[symbol].as(:op) >> spaces? >> (bit | expression).as(:rhs)
+  def binary_operator(symbol)
+    bit.as(:lhs) >> spaces? >> match[symbol].as(:op) >> spaces? >> expression.as(:rhs)
+  end
+
+  def unary_operator(symbol)
+    match[symbol].as(:op) >> (bit | grouped(expression)).as(:target)
   end
 
   def grouped(atom)
     match['('] >> spaces? >> atom >> spaces? >> match[')']
   end
 
-  rule(:addition) { operator '+' }
-  rule(:subtraction) { operator '-' }
-  rule(:multiplication) { operator '*' }
-  rule(:division) { operator '/' }
-  rule(:assignment) { operator '=' }
+  rule(:negation) { unary_operator '-' }
+  rule(:addition) { binary_operator '+' }
+  rule(:subtraction) { binary_operator '-' }
+  rule(:multiplication) { binary_operator '*' }
+  rule(:division) { binary_operator '/' }
+  rule(:assignment) { binary_operator '=' }
 
   # No statements! Only expressions.
   rule(:expression) do
     math = (multiplication | division | addition | subtraction)
-    math | assignment | grouped(expression) 
-  end
-
-  rule(:arg_list) do
-    identifier | ((identifier >> spaces? >> match[','] >> spaces?).repeat >> identifier)
-  end
-
-  # Functions start with def
-  rule(:function) do
-    str('def') >> spaces? >> identifier >> spaces? >> (spaces >> arg_list >> spaces).maybe >> newline >> \
-    (expression >> spaces).repeat >> newline >> \
-    spaces? >> str('end')
+    math.as(:math) | assignment.as(:assignment) | grouped(expression) | negation.as(:negation) | bit
   end
 
   root(:expression)
