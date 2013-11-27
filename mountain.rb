@@ -8,4 +8,4 @@ rescue Parslet::ParseFailed => failure
 	puts failure.cause.ascii_tree
 end
 
-parse "x = 1 + 3"
+parse "def foo\nx = 1 + 1.0 - z\nend"

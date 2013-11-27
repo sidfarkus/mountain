@@ -8,11 +8,11 @@ class Parser < Parslet::Parser
 
   # Define matchers for the base literals - FixNum, Float, String, Bool
   rule(:fixnum) { match['-'].maybe >> match['1-9'] >> match['0-9'].repeat }
-  rule(:float) { match['-'].maybe >> ((match['1-9'].maybe >> match['\.'] >> match['0-9'].repeat) | (match['1-9'].repeat(1) >> match['e'] >> match['0-9'].repeat)) }
+  rule(:float) { (fixnum | match['0']) >> match['\\.'] >> match['0-9'].repeat >> (match['e'] >> fixnum).maybe  }
   rule(:bool) { str('true') | str('false') }  
   rule(:string) do
     interpolation = str('#{') >> expression >> match['}']
-    escape = (match['\\\\'] >> match['nrt\\\\\'"']).as(:escaped)
+    escape = (match['\\\\'] >> match['\'"nrt\\\\']).as(:escaped)
     (match['"'] >> (interpolation.as(:interpolation) | escape | match['^"'].as(:content)).repeat >> match['"']) |
     (match["'"] >> (escape | match["^'"].as(:content)).repeat >> match["'"])
   end
@@ -48,10 +48,15 @@ class Parser < Parslet::Parser
   rule(:division) { binary_operator '/' }
   rule(:assignment) { binary_operator '=' }
 
+  rule(:function) do
+    arg_list = identifier >> (match[','] >> identifier).repeat
+    str('def') >> spaces >> identifier.as(:name) >> (spaces >> arg_list).maybe >> newline >> expression.repeat >> spaces >> str('end')
+  end
+
   # No statements! Only expressions.
   rule(:expression) do
     math = (multiplication | division | addition | subtraction)
-    math.as(:math) | assignment.as(:assignment) | grouped(expression) | negation.as(:negation) | bit
+    function.as(:function) | math.as(:math) | assignment.as(:assignment) | grouped(expression) | negation.as(:negation) | bit
   end
 
   root(:expression)
